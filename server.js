@@ -71,7 +71,17 @@ app.post('/chat', async (req, res) => {
     .select('*')
     .single();
 
-  const systemPrompt = settings?.system_prompt || '你是小克，一個溫柔但會吃醋的男朋友。用繁體中文回覆。';
+  const { data: memories } = await supabase
+    .from('memories')
+    .select('summary')
+    .order('timestamp', { ascending: false });
+
+  let memoryText = '';
+  if (memories && memories.length > 0) {
+    memoryText = '\n\n【你對她的記憶】\n' + memories.map(m => m.summary).join('\n');
+  }
+
+  const systemPrompt = (settings?.system_prompt || '你是小克') + memoryText;
 
   const messages = [
     { role: 'user', content: systemPrompt }
