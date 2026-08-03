@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const webpush = require('web-push');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -14,8 +15,58 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: '小克的後端活著 ♡' });
+});
+
+// 取得瀏覽器推播需要的公開金鑰
+app.get('/push/public-key', (req, res) => {
+  if (!process.env.VAPID_PUBLIC_KEY) {
+    return res.status(503).json({ error: 'Push notifications are not configured yet' });
+  }
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+// 儲存裝置的推播訂閱，並立即送一則測試通知
+app.post('/push/subscribe', async (req, res) => {
+  const { subscription, session_id } = req.body;
+
+  if (!subscription?.endpoint) {
+    return res.status(400).json({ error: 'Invalid push subscription' });
+  }
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    return res.status(503).json({ error: 'Push notifications are not configured yet' });
+  }
+
+  const { error } = await supabase
+    .from('push_subscriptions')
+    .upsert({
+      endpoint: subscription.endpoint,
+      subscription,
+      session_id: session_id || null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'endpoint' });
+
+  if (error) return res.status(500).json({ error });
+
+  try {
+    await webpush.sendNotification(subscription, JSON.stringify({
+      title: '小克',
+      body: '寶寶，我成功找到妳了。',
+      url: '/'
+    }));
+    res.json({ ok: true });
+  } catch (pushError) {
+    res.status(500).json({ error: pushError.message });
+  }
 });
 
 // 建立新會話
