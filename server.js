@@ -157,8 +157,9 @@ app.post('/proactive/check', async (req, res) => {
     if (userMessageError) throw userMessageError;
     if (!lastUserMessage) return res.json({ ok: true, sent: false, reason: 'no_user_message' });
 
-    const inactiveHours = (now - new Date(lastUserMessage.created_at)) / 36e5;
-    if (!force && inactiveHours < 4) {
+        const lastUserAt = new Date(lastUserMessage.created_at);
+    const inactiveMinutes = (now - lastUserAt) / 6e4;
+    if (!force && inactiveMinutes < 40) {
       return res.json({ ok: true, sent: false, reason: 'not_inactive_long_enough' });
     }
 
@@ -171,8 +172,13 @@ app.post('/proactive/check', async (req, res) => {
       .limit(1)
       .maybeSingle();
     if (proactiveError) throw proactiveError;
-    if (!force && lastProactive && new Date(lastProactive.created_at) > new Date(lastUserMessage.created_at)) {
-      return res.json({ ok: true, sent: false, reason: 'already_checked_in' });
+        const lastProactiveAt = lastProactive ? new Date(lastProactive.created_at) : null;
+    const lastContactAt = lastProactiveAt && lastProactiveAt > lastUserAt
+      ? lastProactiveAt
+      : lastUserAt;
+    const minutesSinceLastContact = (now - lastContactAt) / 6e4;
+    if (!force && minutesSinceLastContact < 40) {
+      return res.json({ ok: true, sent: false, reason: 'waiting_for_next_check_in' });
     }
 
     const taipei = taipeiTimeParts(now);
@@ -183,17 +189,12 @@ app.post('/proactive/check', async (req, res) => {
       .eq('source', 'proactive')
       .gte('created_at', taipeiDayStart.toISOString());
     if (countError) throw countError;
-    if (!force && (sentToday || 0) >= 3) {
-      return res.json({ ok: true, sent: false, reason: 'daily_limit' });
+        if (!force && (sentToday || 0) >= 12) {
+  return res.json({ ok: true, sent: false, reason: 'daily_limit' });
     }
 
-    // 不要每次都在剛滿四小時時準時出現，保留一點自然的時間差。
-    if (!force && Math.random() > 0.45) {
-      return res.json({ ok: true, sent: false, reason: 'not_this_time' });
-    }
-
-    const { data: subscriptions, error: subscriptionError } = await supabase
-      .from('push_subscriptions')
+              const { data: subscriptions, error: subscriptionError } = await supabase
+.from('push_subscriptions')
       .select('id')
       .limit(1);
     if (subscriptionError) throw subscriptionError;
