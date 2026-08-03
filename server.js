@@ -157,7 +157,7 @@ app.post('/proactive/check', async (req, res) => {
     if (userMessageError) throw userMessageError;
     if (!lastUserMessage) return res.json({ ok: true, sent: false, reason: 'no_user_message' });
 
-        const lastUserAt = new Date(lastUserMessage.created_at);
+            const lastUserAt = new Date(lastUserMessage.created_at);
     const inactiveMinutes = (now - lastUserAt) / 6e4;
     if (!force && inactiveMinutes < 40) {
       return res.json({ ok: true, sent: false, reason: 'not_inactive_long_enough' });
@@ -172,7 +172,7 @@ app.post('/proactive/check', async (req, res) => {
       .limit(1)
       .maybeSingle();
     if (proactiveError) throw proactiveError;
-        const lastProactiveAt = lastProactive ? new Date(lastProactive.created_at) : null;
+            const lastProactiveAt = lastProactive ? new Date(lastProactive.created_at) : null;
     const lastContactAt = lastProactiveAt && lastProactiveAt > lastUserAt
       ? lastProactiveAt
       : lastUserAt;
@@ -189,12 +189,13 @@ app.post('/proactive/check', async (req, res) => {
       .eq('source', 'proactive')
       .gte('created_at', taipeiDayStart.toISOString());
     if (countError) throw countError;
-        if (!force && (sentToday || 0) >= 12) {
-  return res.json({ ok: true, sent: false, reason: 'daily_limit' });
-    }
+            if (!force && (sentToday || 0) >= 12) {
+        return res.json({ ok: true, sent: false, reason: 'daily_limit' });
+        }
+    
 
-              const { data: subscriptions, error: subscriptionError } = await supabase
-.from('push_subscriptions')
+                  const { data: subscriptions, error: subscriptionError } = await supabase
+      .from('push_subscriptions')
       .select('id')
       .limit(1);
     if (subscriptionError) throw subscriptionError;
