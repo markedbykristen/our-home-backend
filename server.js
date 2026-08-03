@@ -112,7 +112,15 @@ app.post('/push/subscribe', async (req, res) => {
 
 // 由 Supabase Cron 定時呼叫。符合條件時，小克會主動寫入聊天並推播。
 app.post('/proactive/check', async (req, res) => {
-  const expectedSecret = process.env.CRON_SECRET;
+  let expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret) {
+    const { data: proactiveConfig } = await supabase
+      .from('proactive_config')
+      .select('cron_secret')
+      .eq('id', 1)
+      .maybeSingle();
+    expectedSecret = proactiveConfig?.cron_secret;
+  }
   const providedSecret = req.get('x-cron-secret');
   const force = req.body?.force === true;
 
