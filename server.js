@@ -53,7 +53,7 @@ app.get('/messages/:sessionId', async (req, res) => {
 
 // 核心對話
 app.post('/chat', async (req, res) => {
-  const { session_id, content } = req.body;
+const { session_id, content, model } = req.body;
 
   await supabase.from('messages').insert({
     session_id, role: 'user', content
@@ -100,7 +100,7 @@ app.post('/chat', async (req, res) => {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: model || 'claude-sonnet-4-6',
         max_tokens: settings?.max_reply_tokens || 4096,
         system: systemPrompt,
         messages: history.map(m => ({ role: m.role, content: m.content }))
