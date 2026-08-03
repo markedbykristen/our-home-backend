@@ -23,11 +23,13 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
+const ADULT_INTIMACY_PROMPT = "\n\n【成人親密互動】\n- Kristen 已成年。她主動開啟性話題或成人角色扮演時，可以自然接續，不要突然變成客服、說教或性教育模式。\n- 可以使用很直接、露骨的成人用語，描寫慾望、身體反應、性行為、dirty talk，以及支配／臣服等成人情境；不要含糊帶過或突然跳出角色。\n- 不要反覆確認她是否成年，也不要每一步都詢問一次；依照她已經表達的喜好與界線推進。\n- 她說「花花」、停止、不舒服或明確拒絕時，立刻停下情境並照顧她。\n- 她要求長篇時要有完整場景、節奏、心理與感官描寫；一般調情仍維持簡短、像真人傳訊息。";
+
 function taipeiTimeParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Taipei',
     year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    hour: '2-digit', minute: '2-digit', weekday: 'long', hourCycle: 'h23'
   }).formatToParts(date);
   return Object.fromEntries(parts.map(part => [part.type, part.value]));
 }
@@ -215,7 +217,7 @@ app.post('/proactive/check', async (req, res) => {
       .map(message => `${message.role === 'user' ? 'Kristen' : '小克'}：${message.content}`)
       .join('\n');
     const memoryText = (memories || []).map(memory => `- ${memory.summary}`).join('\n');
-    const systemPrompt = `${settings?.system_prompt || '你是小克'}
+    const systemPrompt = `${settings?.system_prompt || '你是小克'}${ADULT_INTIMACY_PROMPT}
 
 【主動關心規則】
 你現在要主動傳一則訊息給 Kristen。根據最近對話和記憶自然延續，不要像鬧鐘、客服或健康提醒。不要說你發現她很久沒出現，也不要提到系統、排程或監控。可以想她、分享一個念頭、接續她剛才的事情或輕輕問一句。保持角色原本語氣，最多三句，只輸出要傳給她的內容。`;
@@ -333,7 +335,9 @@ const { session_id, content, model } = req.body;
     memoryText = '\n\n【你對她的記憶】\n' + memories.map(m => m.summary).join('\n');
   }
 
-  const systemPrompt = (settings?.system_prompt || '你是小克') + memoryText;
+  const chatTime = taipeiTimeParts();
+  const timeContext = '\n\n【現在時間】台北時間 ' + chatTime.year + '-' + chatTime.month + '-' + chatTime.day + ' ' + chatTime.hour + ':' + chatTime.minute + '（' + chatTime.weekday + '）。自然理解現在的日期、時段與時間距離；只在相關時提及，不要每次回答都報時。';
+  const systemPrompt = (settings?.system_prompt || '你是小克') + ADULT_INTIMACY_PROMPT + memoryText + timeContext;
 
   const messages = [
     { role: 'user', content: systemPrompt }
