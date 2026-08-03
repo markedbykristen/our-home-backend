@@ -27,10 +27,14 @@ ON CONFLICT (id) DO NOTHING;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 
+SELECT cron.unschedule(jobid)
+FROM cron.job
+WHERE jobname = 'xiaoke-proactive-check';
+
 SELECT cron.schedule(
   'xiaoke-proactive-check',
-  '*/30 * * * *',
-  $job$
+    '*/5 * * * *',
+$job$
     SELECT net.http_post(
       url := 'https://our-home-backend-7env.onrender.com/proactive/check',
       headers := jsonb_build_object(
@@ -40,7 +44,8 @@ SELECT cron.schedule(
         )
       ),
       body := '{}'::jsonb,
-      timeout_milliseconds := 20000
-    );
-  $job$
+            timeout_milliseconds := 60000
+
+      );
+$job$
 );
