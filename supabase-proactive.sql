@@ -13,3 +13,34 @@ ALTER TABLE messages
 
 CREATE INDEX IF NOT EXISTS messages_source_created_at_idx
   ON messages (source, created_at DESC);
+
+-- Supabase Cron 與後端共用的隨機暗號，不必手動複製到 Render。
+CREATE TABLE IF NOT EXISTS proactive_config (
+  id SMALLINT PRIMARY KEY CHECK (id = 1),
+  cron_secret TEXT NOT NULL
+);
+
+INSERT INTO proactive_config (id, cron_secret)
+VALUES (1, gen_random_uuid()::TEXT || gen_random_uuid()::TEXT)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+
+SELECT cron.schedule(
+  'xiaoke-proactive-check',
+  '*/30 * * * *',
+  $job$
+    SELECT net.http_post(
+      url := 'https://our-home-backend-7env.onrender.com/proactive/check',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'x-cron-secret', (
+          SELECT cron_secret FROM public.proactive_config WHERE id = 1
+        )
+      ),
+      body := '{}'::jsonb,
+      timeout_milliseconds := 20000
+    );
+  $job$
+);
