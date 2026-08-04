@@ -12,7 +12,7 @@ app.use(express.json());
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
@@ -380,6 +380,146 @@ const { session_id, content, model } = req.body;
     res.json({ reply });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+
+const MCP_TOOLS = [
+  {
+    name: 'search_memories',
+    description: 'Search Kristen's saved long-term memories by keyword. Use an empty query to list the newest memories.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keyword to search for; empty means newest memories.' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: 'save_memory',
+    description: 'Save one durable fact, preference, event, promise, or relationship detail about Kristen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', minLength: 1, maxLength: 5000 }
+      },
+      required: ['summary'],
+      additionalProperties: false
+    }
+  },
+  {
+    name: 'delete_memory',
+    description: 'Delete a saved memory by its id or by its exact summary.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { description: 'Memory id returned by search_memories.' },
+        summary: { type: 'string', description: 'Exact memory summary to delete.' }
+      },
+      additionalProperties: false
+    }
+  }
+];
+
+function mcpResult(id, result) {
+  return { jsonrpc: '2.0', id, result };
+}
+
+function mcpError(id, code, message) {
+  return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
+}
+
+function mcpText(data, isError = false) {
+  return {
+    content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }],
+    ...(isError ? { isError: true } : {})
+  };
+}
+
+async function callMemoryTool(name, args = {}) {
+  if (name === 'search_memories') {
+    const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 50);
+    let query = supabase.from('memories').select('*')
+      .order('timestamp', { ascending: false }).limit(limit);
+    const keyword = typeof args.query === 'string' ? args.query.trim() : '';
+    if (keyword) query = query.ilike('summary', '%' + keyword + '%');
+    const { data, error } = await query;
+    if (error) throw error;
+    return mcpText({ memories: data || [], count: data?.length || 0 });
+  }
+
+  if (name === 'save_memory') {
+    const summary = typeof args.summary === 'string' ? args.summary.trim() : '';
+    if (!summary) throw new Error('summary is required');
+    const { data, error } = await supabase.from('memories')
+      .insert({ summary, timestamp: new Date().toISOString() })
+      .select('*').single();
+    if (error) throw error;
+    return mcpText({ saved: true, memory: data });
+  }
+
+  if (name === 'delete_memory') {
+    const hasId = args.id !== undefined && args.id !== null && String(args.id).trim() !== '';
+    const summary = typeof args.summary === 'string' ? args.summary.trim() : '';
+    if (!hasId && !summary) throw new Error('id or summary is required');
+
+    let deletion = supabase.from('memories').delete().select('*');
+    deletion = hasId ? deletion.eq('id', args.id) : deletion.eq('summary', summary);
+    const { data, error } = await deletion;
+    if (error) throw error;
+    return mcpText({ deleted: data?.length || 0, memories: data || [] });
+  }
+
+  throw new Error('Unknown tool: ' + name);
+}
+
+app.all(['/mcp', '/mcp/:secret'], async (req, res) => {
+  const expectedSecret = process.env.MCP_SECRET;
+  const bearer = req.get('authorization')?.replace(/^Bearer\s+/i, '');
+  const providedSecret = req.params.secret || req.get('x-mcp-secret') || bearer;
+
+  if (!expectedSecret) {
+    return res.status(503).json(mcpError(req.body?.id, -32000, 'MCP_SECRET is not configured'));
+  }
+  if (providedSecret !== expectedSecret) {
+    return res.status(401).json(mcpError(req.body?.id, -32001, 'Unauthorized'));
+  }
+  if (req.method !== 'POST') {
+    res.set('Allow', 'POST');
+    return res.status(405).end();
+  }
+
+  const request = req.body || {};
+  const { id, method, params } = request;
+
+  try {
+    if (method === 'initialize') {
+      return res.json(mcpResult(id, {
+        protocolVersion: '2025-06-18',
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: 'our-home-memory', version: '1.0.0' }
+      }));
+    }
+    if (method === 'notifications/initialized') {
+      return res.status(202).end();
+    }
+    if (method === 'ping') {
+      return res.json(mcpResult(id, {}));
+    }
+    if (method === 'tools/list') {
+      return res.json(mcpResult(id, { tools: MCP_TOOLS }));
+    }
+    if (method === 'tools/call') {
+      const toolResult = await callMemoryTool(params?.name, params?.arguments || {});
+      return res.json(mcpResult(id, toolResult));
+    }
+    return res.status(404).json(mcpError(id, -32601, 'Method not found'));
+  } catch (error) {
+    console.error('MCP request failed:', error);
+    return res.status(500).json(mcpResult(id, mcpText(error.message || 'Tool call failed', true)));
   }
 });
 
