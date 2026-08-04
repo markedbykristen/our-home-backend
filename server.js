@@ -387,7 +387,7 @@ const { session_id, content, model } = req.body;
 const MCP_TOOLS = [
   {
     name: 'search_memories',
-    description: 'Search Kristen's saved long-term memories by keyword. Use an empty query to list the newest memories.',
+    description: "Search saved long-term memories by keyword. Use an empty query to list the newest memories.",
     inputSchema: {
       type: 'object',
       properties: {
